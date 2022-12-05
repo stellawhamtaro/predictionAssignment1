@@ -1,0 +1,97 @@
+---
+title: "Prediction Writeup"
+author: "Stella"
+date: '2022-12-05'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+This report shows how you can use a prediction model to identify whether participant is doing an excercise correctly based on data from an accelerometer.
+
+
+
+## Data Loading
+```{r data}
+library(readr)
+library(dplyr)
+library(caret)
+library(rattle)
+
+#Data Loading
+pml_df <- read_csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+pml_pred <- read_csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+
+pml_df$classe <- as.factor(pml_df$classe)
+pml_df$user_name <- as.factor(pml_df$user_name)
+pml_pred$user_name <- as.factor(pml_pred$user_name)
+
+```
+
+## Data Processing
+```{r process, echo=FALSE}
+#Deal with NAs
+sum(is.na(pml_df)==TRUE) ##Number of NAs, which I need to reduce
+sum(is.na(pml_pred)==TRUE) ##Number of NAs, which I need to reduce
+
+
+pml_nas <- pml_df %>% #For training dataset
+  is.na() %>%
+  as.data.frame()
+relevant <- pml_nas[,is.na(summary(pml_nas)[3,])] %>%
+  names()
+
+pml_nas_pred <- pml_pred %>% #For prediction dataset, variables are the same except of 1 exception.
+  is.na() %>%
+  as.data.frame()
+relevant_pred <- pml_nas_pred[,grep("FALSE", x=summary(pml_nas_pred)[2,])] %>%
+  names() #Identify Vector without NAs
+
+sum(is.na(pml_df[,relevant])==TRUE) ##All variables with NAs are excluded
+sum(is.na(pml_pred[,relevant_pred])==TRUE) ##All variables with NAs are excluded
+
+pml_df <- pml_df[,relevant]
+pml_pred <- pml_pred[,relevant_pred]
+
+rm(pml_nas, pml_nas_pred, relevant, relevant_pred) ##Clear for unnecessary sets
+
+#Create Training and Testing Set
+set.seed(123)
+inTrain <- createDataPartition(y = pml_df$...1, p = 0.6, list = FALSE)
+pml_training <- pml_df[inTrain,]
+pml_testing <- pml_df[-inTrain,]
+pml_training <- pml_training[,-1] #X1 is just a running number
+pml_testing <- pml_testing[,-1] #X1 is just a running number
+rm(inTrain)
+```
+partioning of 60 to 40 was used. 
+
+## Building the Model
+```{r build, echo=FALSE}
+#Build up a model using the defined training and testing dataset (Cross Validation)
+modfit <- train(classe ~ .,
+                method = "rpart",
+                data = pml_training)
+
+pred <- predict(modfit, pml_testing)
+
+acc <- confusionMatrix(pred, pml_testing$classe)$overall[1]
+
+#Out of sample error
+
+OutOfSampleError <- as.numeric(1-acc)
+OutOfSampleError
+
+```
+##Use the Prediction Analysis
+```{r predict, echo=FALSE}
+fancyRpartPlot(modfit$finalModel)
+predict(modfit, pml_pred)
+```
+
+the predicted results were correct a majority of the time. 
+
