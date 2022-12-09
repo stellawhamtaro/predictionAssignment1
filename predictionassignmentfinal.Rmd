@@ -10,88 +10,76 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Synopsis
+In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
 
-This report shows how you can use a prediction model to identify whether participant is doing an excercise correctly based on data from an accelerometer.
+## Load libraries
 
-
-
-## Data Loading
-```{r data}
-library(readr)
-library(dplyr)
+```{r}
 library(caret)
-library(rattle)
-
-#Data Loading
-pml_df <- read_csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
-pml_pred <- read_csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
-
-pml_df$classe <- as.factor(pml_df$classe)
-pml_df$user_name <- as.factor(pml_df$user_name)
-pml_pred$user_name <- as.factor(pml_pred$user_name)
-
+library(randomForest)
 ```
 
-## Data Processing
-```{r process, echo=FALSE}
-#Deal with NAs
-sum(is.na(pml_df)==TRUE) ##Number of NAs, which I need to reduce
-sum(is.na(pml_pred)==TRUE) ##Number of NAs, which I need to reduce
+## Load Data and delete NA
 
-
-pml_nas <- pml_df %>% #For training dataset
-  is.na() %>%
-  as.data.frame()
-relevant <- pml_nas[,is.na(summary(pml_nas)[3,])] %>%
-  names()
-
-pml_nas_pred <- pml_pred %>% #For prediction dataset, variables are the same except of 1 exception.
-  is.na() %>%
-  as.data.frame()
-relevant_pred <- pml_nas_pred[,grep("FALSE", x=summary(pml_nas_pred)[2,])] %>%
-  names() #Identify Vector without NAs
-
-sum(is.na(pml_df[,relevant])==TRUE) ##All variables with NAs are excluded
-sum(is.na(pml_pred[,relevant_pred])==TRUE) ##All variables with NAs are excluded
-
-pml_df <- pml_df[,relevant]
-pml_pred <- pml_pred[,relevant_pred]
-
-rm(pml_nas, pml_nas_pred, relevant, relevant_pred) ##Clear for unnecessary sets
-
-#Create Training and Testing Set
-set.seed(123)
-inTrain <- createDataPartition(y = pml_df$...1, p = 0.6, list = FALSE)
-pml_training <- pml_df[inTrain,]
-pml_testing <- pml_df[-inTrain,]
-pml_training <- pml_training[,-1] #X1 is just a running number
-pml_testing <- pml_testing[,-1] #X1 is just a running number
-rm(inTrain)
-```
-partioning of 60 to 40 was used. 
-
-## Building the Model
-```{r build, echo=FALSE}
-#Build up a model using the defined training and testing dataset (Cross Validation)
-modfit <- train(classe ~ .,
-                method = "rpart",
-                data = pml_training)
-
-pred <- predict(modfit, pml_testing)
-
-acc <- confusionMatrix(pred, pml_testing$classe)$overall[1]
-
-#Out of sample error
-
-OutOfSampleError <- as.numeric(1-acc)
-OutOfSampleError
-
-```
-##Use the Prediction Analysis
-```{r predict, echo=FALSE}
-fancyRpartPlot(modfit$finalModel)
-predict(modfit, pml_pred)
+```{r}
+training.url <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test.cases.url <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+downloadcsv <- function(url, nastrings) {
+    temp <- tempfile()
+    download.file(url, temp, method = "curl")
+    data <- read.csv(temp, na.strings = nastrings)
+    unlink(temp)
+    return(data)
+}
+train <- downloadcsv(training.url, c("", "NA", "#DIV/0!"))
+test <- downloadcsv(test.cases.url, c("", "NA", "#DIV/0!"))
+dim(train)
+table(train$classe)
 ```
 
-the predicted results were correct a majority of the time. 
+##Validation and Selection
 
+```{r}
+set.seed(12345)
+trainset <- createDataPartition(train$classe, p = 0.8, list = FALSE)
+Training <- train[trainset, ]
+Validation <- train[-trainset, ]
+nonzerocol <- nearZeroVar(Training)
+Training <- Training[, -nonzerocol]
+countlength <- sapply(Training, function(x) {
+    sum(!(is.na(x) | x == ""))
+})
+nullCol <- names(countlength[countlength < 0.6 * length(Training$classe)])
+descriptcol <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+    "cvtd_timestamp", "new_window", "num_window")
+excludecolumns <- c(descriptcol, nullCol)
+Training <- Training[, !names(Training) %in% excludecolumns]
+```
+
+
+## Creating models
+
+```{r}
+rfModel <- randomForest(as.factor(classe)~ ., data = Training, importance = TRUE, ntrees = 10)
+ptraining <- predict(rfModel, Training)
+```
+
+## Validation and Test the model
+
+```{r}
+u1 <- union(ptraining,Training$classe)
+t1 <- table(factor(ptraining, u1), factor(Training$classe, u1))
+print(confusionMatrix(t1))
+pvalidation <- predict(rfModel, Validation)
+u2 <- union(pvalidation,Validation$classe)
+t2 <- table(factor(pvalidation, u2), factor(Validation$classe, u2))
+print(confusionMatrix(t2))
+ptest <- predict(rfModel, test)
+ptest
+```
+
+
+
+## Conclusions
+
+Taking into account the previous data and the models; the result with the random forest model with cross validation, gives us an accurate result of approximately 99%.
